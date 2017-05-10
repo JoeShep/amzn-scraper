@@ -18,6 +18,9 @@
 // https://github.com/Rob--W/cors-anywhere/#documentation
 // and
 // https://www.twilio.com/blog/2016/04/send-text-in-javascript-node-in-30-seconds.html
+// and
+// https://www.npmjs.com/package/node-storage
+
 require('dotenv').config();
 console.log("process.env.TWILIO_ACCOUNT_SID", process.env.TWILIO_ACCOUNT_SID);
 const fs = require('fs'),
@@ -29,22 +32,21 @@ const fs = require('fs'),
       cors_proxy = require('cors-anywhere'),
       twilio = require('twilio'),
       client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN),
-      basePrice = 43.49;
-
+      Storage = require('node-storage'),
+      store = new Storage(__dirname + "/data/priceData"),
+      basePrice = "";
+ 
 cors_proxy.createServer({
   originWhitelist: [], // Allow all origins 
-  // requireHeader: ['origin', 'x-requested-with'],
   removeHeaders: ['cookie', 'cookie2']
 }).listen(port, host, function() {
   console.log('Running CORS Anywhere on ' + host + ':' + port);
 });
 
-
 function scrapePage () {
   //make an HTTP request for the page to be scraped
   request(`http://localhost:${port}/${pageURL}`, (error, response, responseHtml) => {        
     if (error) console.log("error", error);
-    // console.log("response", responseHtml);
     //write the entire scraped page to the local file system
     fs.writeFile(__dirname + '/html/wishlist.html', responseHtml, (err) => {
         if (err) console.log("error in write file", err);
@@ -53,18 +55,28 @@ function scrapePage () {
     //create the cheerio object
     const $ = cheerio.load(responseHtml),
         //create a reference to the wish list
-        itemPrice = $('span[id="itemPrice_I3HPIU69V64NLY"]').html().replace('$', '');
+        currentPrice = $('span[id="itemPrice_I3HPIU69V64NLY"]').html().replace('$', '').trim(),
+        // TODO: replace hard-coded item id
+        itemId = 'item_I3HPIU69V64NLY'.replace('item_', ''),
+        item = store.get(itemId);
 
-    comparePrice(itemPrice);
+    if (item) {
+      console.log("yups, it's already saved");
+      basePrice = item;
+      comparePrice(currentPrice);
+    } else {
+      store.put(itemId, itemPrice); 
+    }
   });
 }
 
 // send a push notification
-function comparePrice(itemPrice) {
-  if (itemPrice < basePrice) {
+function comparePrice(currentPrice) {
+  if (currentPrice < basePrice) {
        sendText(itemPrice, basePrice);
     }
   else console.log("Still too much");
+  process.exit();
 }
 
 function sendText(newPrice, oldPrice) {
@@ -72,7 +84,7 @@ function sendText(newPrice, oldPrice) {
   client.messages.create({
     to: process.env.PHONE_NO,
     from: process.env.TWILIO_NO,
-    body: `The price of your game has dropped from ${oldPrice} to ${newPrice}`
+    body: `The price of your game has dropped from $${oldPrice} to $${newPrice}`
   })
   .then( (message) => {
     console.log(message.sid);
