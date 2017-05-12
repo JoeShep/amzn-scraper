@@ -34,7 +34,7 @@ const fs = require('fs'),
       client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN),
       Storage = require('node-storage'),
       store = new Storage(__dirname + "/data/priceData"),
-      basePrice = "";
+      origPrice = null;
  
 cors_proxy.createServer({
   originWhitelist: [], // Allow all origins 
@@ -43,40 +43,45 @@ cors_proxy.createServer({
   console.log('Running CORS Anywhere on ' + host + ':' + port);
 });
 
-function scrapePage () {
-  //make an HTTP request for the page to be scraped
-  request(`http://localhost:${port}/${pageURL}`, (error, response, responseHtml) => {        
-    if (error) console.log("error", error);
-    //write the entire scraped page to the local file system
-    fs.writeFile(__dirname + '/html/wishlist.html', responseHtml, (err) => {
-        if (err) console.log("error in write file", err);
-        console.log('entire-page.html successfully written to HTML folder');
+function scrapePage() {
+  return new Promise( (resolve, reject) => {
+    //make an HTTP request for the page to be scraped
+    request(`http://localhost:${port}/${pageURL}`, (error, response, responseHtml) => {        
+      if (error) { console.log("error", error); reject(); };
+      //write the entire scraped page to the local file system
+      fs.writeFile(__dirname + '/html/wishlist.html', responseHtml, (err) => {
+          if (err) console.log("error in write file", err);
+          console.log('entire-page.html successfully written to HTML folder');
+          resolve(responseHtml)
+      })
     })
-    //create the cheerio object
-    const $ = cheerio.load(responseHtml),
-        //create a reference to the wish list
-        currentPrice = $('span[id="itemPrice_I3HPIU69V64NLY"]').html().replace('$', '').trim(),
-        // TODO: replace hard-coded item id
-        itemId = 'item_I3HPIU69V64NLY'.replace('item_', ''),
-        item = store.get(itemId);
-
-    if (item) {
-      console.log("yups, it's already saved");
-      basePrice = item;
-      comparePrice(currentPrice);
-    } else {
-      store.put(itemId, itemPrice); 
-    }
-  });
+  })
 }
 
-// send a push notification
-function comparePrice(currentPrice) {
-  if (currentPrice < basePrice) {
-       sendText(itemPrice, basePrice);
+function parseItems(resHtml) {
+  return new Promise( (resolve, reject) => {
+    const $ = cheerio.load(resHtml),
+          //create a reference to the wish list
+          currentPrice = $('span[id="itemPrice_I3HPIU69V64NLY"]').html().replace('$', '').trim(),
+          // TODO: replace hard-coded item id
+          itemId = 'item_I3HPIU69V64NLY'.replace('item_', ''),
+          item = store.get(itemId);
+          console.log("currentPrice", currentPrice );
+
+    // if item exists in the db already, send its price to be compared to saved version
+    // Otherwise, store it in the db
+    if (!item) {
+      origPrice = currentPrice
+      store.put(itemId, currentPrice);
+    } else {
+      origPrice = 50.00; //item
     }
-  else console.log("Still too much");
-  process.exit();
+    resolve({currentPrice})
+  })
+}
+
+function comparePrice(currentPrice) {
+  currentPrice < origPrice ? sendText(currentPrice, origPrice) : process.exit();
 }
 
 function sendText(newPrice, oldPrice) {
@@ -94,5 +99,14 @@ function sendText(newPrice, oldPrice) {
 };
 
 //scrape the page
-scrapePage();
+scrapePage()
+.then( (resHtml) => {
+  return parseItems(resHtml)
+})
+.then( ({currentPrice}) => {
+  comparePrice(currentPrice)
+})
+.catch( (err) => {
+  console.log("error", err );
+});
 
