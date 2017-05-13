@@ -10,6 +10,8 @@
 // If price is higher, also send text, save new price as "higher". Still compare to original price in scrape
 // Setup cron job (look at npm module)
 // Scrape all items in wishlist
+    // look for a-disabled class on next
+    //if !disabled, grab url of next page and scrape it, too
 // deploy
 
 // An unholy marriage of 
@@ -26,7 +28,7 @@ console.log("process.env.TWILIO_ACCOUNT_SID", process.env.TWILIO_ACCOUNT_SID);
 const fs = require('fs'),
       request = require('request'),
       cheerio = require('cheerio'),
-      pageURL = 'http://www.amazon.com/gp/registry/wishlist/1TPFUIJULM8B1/ref=cm_wl_list_o_0?',
+      pageURL = 'http://www.amazon.com/gp/registry/wishlist/1TPFUIJULM8B1',
       host = process.env.PORT ? '0.0.0.0' : '127.0.0.1';
       port = process.env.PORT || 8080,
       cors_proxy = require('cors-anywhere'),
@@ -59,25 +61,32 @@ function scrapePage() {
 }
 
 function parseItems(resHtml) {
-  return new Promise( (resolve, reject) => {
-    const $ = cheerio.load(resHtml),
-          //create a reference to the wish list
-          currentPrice = $('span[id="itemPrice_I3HPIU69V64NLY"]').html().replace('$', '').trim(),
-          // TODO: replace hard-coded item id
-          itemId = 'item_I3HPIU69V64NLY'.replace('item_', ''),
-          item = store.get(itemId);
-          console.log("currentPrice", currentPrice );
+  // return new Promise( (resolve, reject) => {
+  const $ = cheerio.load(resHtml),
+        priceCollection = $('div[id^="itemMain"]');
+        // console.log("priceCollection", priceCollection);
+
+  priceCollection.toArray().forEach( (item) => {
+    
+    const $item = $(item),
+          itemName = $item.find('a[id^="itemName"]').html().trim(),
+          itemUrl = $item.find('a[id^="itemName"]').attr('href'),
+          itemPrice = $item.find('span[id^="itemPrice"]').html().trim(),
+          itemId = item.attribs.id.replace('itemMain_', '');
 
     // if item exists in the db already, send its price to be compared to saved version
     // Otherwise, store it in the db
-    if (!item) {
-      origPrice = currentPrice
-      store.put(itemId, currentPrice);
+    storedItem = store.get(itemId);
+    if (!storedItem) {
+      origPrice = itemPrice
+      store.put(itemId, {itemName, itemUrl, itemPrice});
     } else {
-      origPrice = 50.00; //item
+      origPrice = storedItem;
     }
-    resolve({currentPrice})
+    console.log("new item stored?", store.get(itemId));
+    // resolve(itemPrice)
   })
+  // });
 }
 
 function comparePrice(currentPrice) {
@@ -103,10 +112,10 @@ scrapePage()
 .then( (resHtml) => {
   return parseItems(resHtml)
 })
-.then( ({currentPrice}) => {
-  comparePrice(currentPrice)
-})
-.catch( (err) => {
-  console.log("error", err );
-});
+// .then( ({currentPrice}) => {
+//   comparePrice(currentPrice)
+// })
+// .catch( (err) => {
+//   console.log("error", err );
+// });
 
