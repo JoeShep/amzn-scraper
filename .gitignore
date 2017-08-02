@@ -3,3 +3,4 @@ node_modules
 html/items.html
 html/wishlist.html
 data/priceData
+.DS_Store

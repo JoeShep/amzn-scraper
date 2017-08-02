@@ -14,7 +14,8 @@
     //if !disabled, grab url of next page and scrape it, too
 // deploy
 
-// An unholy marriage of 
+// Amazon Wishlist web scraper
+// The below is an unholy marriage of
 // http://marulanda.me/amazon-price-tracker-pushbullet/
 // and
 // https://github.com/Rob--W/cors-anywhere/#documentation
@@ -22,6 +23,7 @@
 // https://www.twilio.com/blog/2016/04/send-text-in-javascript-node-in-30-seconds.html
 // and
 // https://www.npmjs.com/package/node-storage
+
 
 require('dotenv').config();
 console.log("process.env.TWILIO_ACCOUNT_SID", process.env.TWILIO_ACCOUNT_SID);
@@ -37,9 +39,9 @@ const fs = require('fs'),
       Storage = require('node-storage'),
       store = new Storage(__dirname + "/data/priceData"),
       origPrice = null;
- 
+
 cors_proxy.createServer({
-  originWhitelist: [], // Allow all origins 
+  originWhitelist: [], // Allow all origins
   removeHeaders: ['cookie', 'cookie2']
 }).listen(port, host, function() {
   console.log('Running CORS Anywhere on ' + host + ':' + port);
@@ -48,7 +50,7 @@ cors_proxy.createServer({
 function scrapePage() {
   return new Promise( (resolve, reject) => {
     //make an HTTP request for the page to be scraped
-    request(`http://localhost:${port}/${pageURL}`, (error, response, responseHtml) => {        
+    request(`http://localhost:${port}/${pageURL}`, (error, response, responseHtml) => {
       if (error) { console.log("error", error); reject(); };
       //write the entire scraped page to the local file system
       fs.writeFile(__dirname + '/html/wishlist.html', responseHtml, (err) => {
@@ -61,36 +63,37 @@ function scrapePage() {
 }
 
 function parseItems(resHtml) {
-  // return new Promise( (resolve, reject) => {
-  const $ = cheerio.load(resHtml),
-        priceCollection = $('div[id^="itemMain"]');
-        // console.log("priceCollection", priceCollection);
+  return new Promise( (resolve, reject) => {
+    const $ = cheerio.load(resHtml),
+          priceCollection = $('div[id^="itemMain"]');
+          // console.log("priceCollection", priceCollection);
 
-  priceCollection.toArray().forEach( (item) => {
-    
-    const $item = $(item),
-          itemName = $item.find('a[id^="itemName"]').html().trim(),
-          itemUrl = $item.find('a[id^="itemName"]').attr('href'),
-          itemPrice = $item.find('span[id^="itemPrice"]').html().trim(),
-          itemId = item.attribs.id.replace('itemMain_', '');
+    priceCollection.toArray().forEach( (item) => {
+      const $item = $(item),
+            itemName = $item.find('a[id^="itemName"]').html().trim(),
+            itemUrl = $item.find('a[id^="itemName"]').attr('href'),
+            itemPrice = $item.find('span[id^="itemPrice"]').html().trim(),
+            itemId = item.attribs.id.replace('itemMain_', '');
 
-    // if item exists in the db already, send its price to be compared to saved version
-    // Otherwise, store it in the db
-    storedItem = store.get(itemId);
-    if (!storedItem) {
-      origPrice = itemPrice
-      store.put(itemId, {itemName, itemUrl, itemPrice});
-    } else {
-      origPrice = storedItem;
-    }
-    console.log("new item stored?", store.get(itemId));
-    // resolve(itemPrice)
-  })
-  // });
+      // if item exists in the db already, send its price to be compared to saved version
+      // Otherwise, store it in the db
+      storedItem = store.get(itemId);
+      if (!storedItem) {
+        origPrice = itemPrice
+        store.put(itemId, {itemName, itemUrl, itemPrice});
+      } else {
+        origPrice = storedItem;
+      }
+      console.log("new item stored?", store.get(itemId));
+      resolve(itemPrice)
+    })
+  });
 }
 
 function comparePrice(currentPrice) {
-  currentPrice < origPrice ? sendText(currentPrice, origPrice) : process.exit();
+  return new Promise( (resolve, reject) => {
+    currentPrice < origPrice ? sendText(currentPrice, origPrice) : process.exit();
+  })
 }
 
 function sendText(newPrice, oldPrice) {
@@ -112,10 +115,10 @@ scrapePage()
 .then( (resHtml) => {
   return parseItems(resHtml)
 })
-// .then( ({currentPrice}) => {
-//   comparePrice(currentPrice)
-// })
-// .catch( (err) => {
-//   console.log("error", err );
-// });
+.then( ({currentPrice}) => {
+  comparePrice(currentPrice)
+})
+.catch( (err) => {
+  console.log("error", err );
+});
 
